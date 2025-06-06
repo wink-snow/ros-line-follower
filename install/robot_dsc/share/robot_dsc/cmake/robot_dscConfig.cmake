@@ -1,0 +1,1 @@
+/home/ros/projects/ros2_ws/build/robot_dsc/ament_cmake_core/robot_dscConfig.cmake
