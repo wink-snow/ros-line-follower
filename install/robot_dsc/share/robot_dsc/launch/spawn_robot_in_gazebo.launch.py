@@ -1,1 +1,0 @@
-/home/ros/projects/ros2_ws/src/robot_dsc/launch/spawn_robot_in_gazebo.launch.py
