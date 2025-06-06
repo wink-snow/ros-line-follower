@@ -1,2 +1,6 @@
+# ROS Colcon build artifacts
 build/
+install/
 log/
+
+__pycache__/

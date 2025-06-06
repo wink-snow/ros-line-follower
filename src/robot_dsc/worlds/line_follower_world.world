@@ -40,8 +40,7 @@
       </link>
     </model>
 
-    <!-- 如果你想让线条更复杂，可以使用多个box或cylinder拼接 -->
-    <!-- 例如一个弯曲的线条 -->
+    <!-- 可以使用多个box或cylinder拼接 -->
     <model name="curved_line_segment1">
       <static>true</static>
       <pose>2.5 0.5 0.01 0 0 0.785</pose> <!-- 调整位置和旋转以创建曲线 -->
@@ -59,7 +58,6 @@
         </visual>
       </link>
     </model>
-    <!-- 你可以添加更多段来形成路径 -->
 
   </world>
 </sdf>

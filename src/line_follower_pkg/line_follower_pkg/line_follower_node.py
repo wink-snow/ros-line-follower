@@ -11,7 +11,7 @@ class LineFollower(Node):
         super().__init__('line_follower_node')
         
         # 参数
-        self.declare_parameter('camera_topic', '/my_robot/camera/image_raw')
+        self.declare_parameter('camera_topic', '/my_robot/camera_sensor/image_raw')
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('target_line_color_lower', [0,0,0]) # 黑色HSV下限
         self.declare_parameter('target_line_color_upper', [180,255,50]) # 黑色HSV上限 
@@ -51,19 +51,13 @@ class LineFollower(Node):
             self.get_logger().error(f'Failed to convert image: {str(e)}')
             return
 
-        # --- 图像处理和循迹逻辑将在这里实现 ---
         # 转换到HSV色彩空间
         hsv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
 
         # 根据颜色阈值创建掩码 (Mask)
-        lower_bound = np.array(self.get_parameter('target_line_color_lower').get_parameter_value().integer_array_value)
-        upper_bound = np.array(self.get_parameter('target_line_color_upper').get_parameter_value().integer_array_value)
+        lower_bound = np.array(self.get_parameter('target_line_color_lower').get_parameter_value().integer_array_value, dtype=np.uint8)
+        upper_bound = np.array(self.get_parameter('target_line_color_upper').get_parameter_value().integer_array_value, dtype=np.uint8)
         mask = cv2.inRange(hsv_image, lower_bound, upper_bound)
-        
-        # (可选) 对掩码进行形态学操作以去除噪声
-        # kernel = np.ones((5,5),np.uint8)
-        # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        # mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
         # 找到掩码中的轮廓或计算质心
         h, w, d = cv_image.shape
@@ -72,7 +66,6 @@ class LineFollower(Node):
         mask[0:search_top, 0:w] = 0
         mask[search_bot:h, 0:w] = 0 
         
-        # 计算掩码区域的质心 (Moments)
         M = cv2.moments(mask)
         
         cmd_vel_msg = Twist()
