@@ -24,7 +24,7 @@ class PIDLineFollower(Node):
         
         # PID状态变量
         self._integral = 0.0
-        self._previous_error = 10.0
+        self._previous_error = 0.0
         self._last_time = None
 
         # 创建订阅者，订阅语义标签图像

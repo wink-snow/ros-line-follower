@@ -28,6 +28,7 @@ def generate_launch_description():
     start_gazebo_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')),
         launch_arguments={'gz_args': ['-r ', world]}.items(), # '-r' 表示启动后运行
+        # launch_arguments={'gz_args': ['-r ', world], 'gz_version': '7'}.items(),
     )
 
     robot_description_content = ParameterValue(

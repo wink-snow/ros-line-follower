@@ -138,6 +138,8 @@
             <always_on>1</always_on>
             <visualize>true</visualize>
 
+            <segmentation_type>semantic</segmentation_type>
+
             <!-- plugin name="gz::sim::systems::SegmentationCamera" filename="gz-sim-segmentation-camera-system">
                 <topic>/semantic_camera</topic>
             </plugin -->
