@@ -113,7 +113,7 @@
             <update_rate>20.0</update_rate>
             <camera>
                 <horizontal_fov>1.047</horizontal_fov>
-                <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+                <image><width>320</width><height>240</height><format>R8G8B8</format></image>
                 <clip><near>0.05</near><far>8.0</far></clip>
             </camera>
             <topic>rgb_camera</topic>
@@ -129,7 +129,7 @@
             <update_rate>20.0</update_rate>
             <camera>
                 <horizontal_fov>1.047</horizontal_fov>
-                <image><width>640</width><height>480</height></image>
+                <image><width>320</width><height>240</height></image>
                 <clip><near>0.05</near><far>8.0</far></clip>
             </camera>
             <topic>/semantic_camera</topic>

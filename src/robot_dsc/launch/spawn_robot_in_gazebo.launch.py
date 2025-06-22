@@ -68,7 +68,8 @@ def generate_launch_description():
         arguments=[
             # 摄像头 (Gazebo -> ROS)
             '/rgb_camera@sensor_msgs/msg/Image[gz.msgs.Image',
-            '/semantic_camera@sensor_msgs/msg/Image[gz.msgs.Image',
+            '/semantic_camera/labels_map@sensor_msgs/msg/Image[gz.msgs.Image',
+            '/semantic_camera/colored_map@sensor_msgs/msg/Image[gz.msgs.Image',
             
             # 控制 (ROS -> Gazebo)
             '/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
