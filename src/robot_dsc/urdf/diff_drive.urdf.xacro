@@ -22,6 +22,14 @@
         <inertia ixx="${2*m*r*r/5}" ixy="0" ixz="0" iyy="${2*m*r*r/5}" iyz="0" izz="${2*m*r*r/5}"/>
     </xacro:macro>
 
+    <link name="base_footprint"/>
+
+    <joint name="base_footprint_to_base_link_joint" type="fixed">
+        <parent link="base_footprint"/>
+        <child link="base_link"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
     <!-- Base Link -->
     <link name="base_link">
         <visual><geometry><box size="${base_length} ${base_width} ${base_height}"/></geometry><material name="grey"><color rgba="0.5 0.5 0.5 1"/></material></visual>
@@ -109,17 +117,28 @@
                 <clip><near>0.05</near><far>8.0</far></clip>
             </camera>
             <topic>rgb_camera</topic>
+            <always_on>1</always_on>
             <visualize>true</visualize>
+            <!-- 添加这个插件 -->
+            <!-- plugin name="gz::sim::systems::Camera" filename="gz-sim-camera-system">
+                <topic>rgb_camera</topic>
+            </plugin -->
         </sensor>
-        <sensor name="semantic_camera_sensor" type="semantic_segmentation_camera">
+
+        <sensor name="semantic_camera_sensor" type="segmentation">
             <update_rate>20.0</update_rate>
             <camera>
                 <horizontal_fov>1.047</horizontal_fov>
                 <image><width>640</width><height>480</height></image>
                 <clip><near>0.05</near><far>8.0</far></clip>
             </camera>
-            <topic>semantic_camera</topic>
+            <topic>/semantic_camera</topic>
+            <always_on>1</always_on>
             <visualize>true</visualize>
+
+            <!-- plugin name="gz::sim::systems::SegmentationCamera" filename="gz-sim-segmentation-camera-system">
+                <topic>/semantic_camera</topic>
+            </plugin -->
         </sensor>
     </gazebo>
 
