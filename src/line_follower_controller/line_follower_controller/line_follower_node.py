@@ -42,10 +42,13 @@ class LineFollowerNode(Node):
         # --- 可调参数 ---
         # 速度
         self.forward_speed = 0.5       # 正常循线时的前进速度
-        self.search_speed_angular = 0.3 # 丢失线时的旋转搜索速度
+        self.search_speed_angular = 0.15 # 丢失线时的旋转搜索速度
+        self.search_direction = 1
         self.search_tmp_yaw = 0.0
         self.search_degree = 0.0
-        self.search_degree_threshold = math.radians(120)
+        self.last_search_yaw = 0.0      # 用于计算增量
+        self.total_rotation_accumulator = 0.0
+        self.search_degree_threshold = math.radians(60)
         # PD 控制器
         self.Kp = 0.008                 # 比例增益
         self.Kd = 0.005                 # 微分增益
@@ -69,7 +72,7 @@ class LineFollowerNode(Node):
             Image,
             '/rgb_camera',
             self.image_callback,
-            10)
+            20)
         self.cmd_vel_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
         self.bridge = CvBridge()
         
@@ -86,9 +89,11 @@ class LineFollowerNode(Node):
             self.get_logger().warn('Waiting for initial odometry data...', throttle_duration_sec=2)
             return
 
-        # --- 状态机 ---
+        # --- 状态机 RECORDING -> SEARCHING -> PROCESSING -> STOPPED ---
         if self.robot_state == 'RECORDING':
             self.perform_recording_lap(msg)
+        elif self.robot_state == 'SEARCHING':
+            self.perform_search(msg)
         elif self.robot_state == 'PROCESSING':
             self.process_path()
         elif self.robot_state == 'STOPPED':
@@ -121,21 +126,26 @@ class LineFollowerNode(Node):
         masked_image = cv2.bitwise_and(image, mask)
         
         return masked_image, mask # 同时返回掩码本身
-
+    
+    @staticmethod
+    def process_image_for_line(cv_image):
+        """图像处理部分"""
+        height, width, _ = cv_image.shape
+        roi_top = int(height * 2 / 3) 
+        roi = cv_image[roi_top:, :]
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        _, binary_full_roi = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
+        return roi, binary_full_roi
+    
     def perform_recording_lap(self, msg: Image):
         """执行循线、记录路径和检测圈末的任务"""
         try:
             cv_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
         except Exception as e:
-            self.get_logger().error(f'Failed to convert image: {e}')
+            self.get_logger().error(f'Failed to convert image when recording: {e}')
             return
-            
-        height, width, _ = cv_image.shape
-        roi_top = int(height * 2 / 3) 
-        roi = cv_image[roi_top:, :]
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-        _, binary_full_roi = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
+        roi, binary_full_roi = self.process_image_for_line(cv_image)
         binary, _ = self.apply_trapezoidal_mask(binary_full_roi)
 
         # gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
@@ -152,7 +162,7 @@ class LineFollowerNode(Node):
             cx = int(M['m10'] / M['m00'])
             cv2.circle(roi, (cx, roi.shape[0] // 2), 10, (0, 0, 255), -1)
 
-            center_of_image = width // 2
+            center_of_image = roi.shape[1] // 2
             current_error = cx - center_of_image
             derivative_error = current_error - self.last_error
             
@@ -163,13 +173,9 @@ class LineFollowerNode(Node):
             self.last_error = current_error
 
             # --- 路径记录 ---
-            current_x = self.current_pose.position.x
-            current_y = self.current_pose.position.y
-            if not self.path or np.linalg.norm([current_x - self.path[-1][0], current_y - self.path[-1][1]]) > self.path_record_threshold:
-                self.path.append((current_x, current_y))
-                self.get_logger().info(f'Path point recorded: ({current_x:.2f}, {current_y:.2f})')
+            self.record_path_point()
 
-             # --- 新增：分区分析 ---
+             # --- 分区分析 ---
             h, w = binary.shape
             # 将二值图的宽度分成三部分
             left_zone = binary[:, 0 : w//3]
@@ -182,6 +188,7 @@ class LineFollowerNode(Node):
         else:
             # --- 线丢失处理 ---
             self.get_logger().warn('Line LOST! Initiating search...')
+            self.robot_state = "SEARCHING"
             twist.linear.x = 0.0
             
             # 定义一个阈值，避免微小噪点的影响
@@ -190,42 +197,18 @@ class LineFollowerNode(Node):
             if self.last_seen_right_pixels > self.last_seen_left_pixels + pixel_diff_threshold:
                 # 右侧像素明显更多，说明线往右拐了
                 self.get_logger().info("Hint: Line likely curved right. Searching right.")
-                twist.angular.z = -self.search_speed_angular
+                self.search_direction = -1
+
             elif self.last_seen_left_pixels > self.last_seen_right_pixels + pixel_diff_threshold:
                 # 左侧像素明显更多，说明线往左拐了
                 self.get_logger().info("Hint: Line likely curved left. Searching left.")
-                twist.angular.z = self.search_speed_angular
+                self.search_direction = 1
             else:
                 # 如果两侧差不多，或者都没有，退回到原来的策略
                 self.get_logger().info("Hint: No clear curve hint. Falling back to last error.")
-                twist.angular.z = -self.search_speed_angular if self.last_error > 0 else self.search_speed_angular
-
-            # 对机器人偏角变化做一个累加
-            if self.search_tmp_yaw == 0.0:
-                self.search_tmp_yaw = self.current_yaw
-                self.get_logger().warn('Line LOST! Initiating search, recording start yaw.')
-
-            delta_yaw = self.current_yaw - self.search_tmp_yaw
-            # 修正角度，使其在[-pi, pi]范围内
-            if delta_yaw > np.pi:
-                delta_yaw -= 2 * np.pi
-            elif delta_yaw < -np.pi:
-                delta_yaw += 2 * np.pi
-
-            # 更新总旋转角度（取绝对值）
-            self.search_degree = abs(delta_yaw)
-            
-            self.get_logger().info(f'Searching... Total rotation: {np.degrees(self.search_degree):.1f} degrees')
-
-            # 判断是否完成一圈
-            # 用弧度进行比较
-            if self.search_degree > self.search_degree_threshold: 
-                self.get_logger().info('Search rotation exceeded the max degrees. Assuming lap completed!')
-                self.get_logger().info('Switching to PROCESSING state.')
-                self.robot_state = 'PROCESSING'
-                self.cmd_vel_publisher.publish(Twist()) # 立即停止
-                return
-
+                self.search_direction = -1 if self.last_error > 0 else 1
+                
+            twist.angular.z = self.search_speed_angular * self.search_direction
 
         self.cmd_vel_publisher.publish(twist)
         
@@ -233,6 +216,81 @@ class LineFollowerNode(Node):
         cv2.imshow("Binary Image", binary)
         cv2.imshow("Line Follower View", roi)
         cv2.waitKey(1)
+
+    def perform_search(self, msg: Image):
+        try:
+            cv_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+        except Exception as e:
+            self.get_logger().error(f'Failed to convert image when seatching: {e}')
+            return
+        roi, binary_full_roi = self.process_image_for_line(cv_image)
+        binary, _ = self.apply_trapezoidal_mask(binary_full_roi)
+        M = cv2.moments(binary) 
+
+        # 对机器人偏角变化做一个累加
+        if self.search_tmp_yaw == 0.0:
+            self.search_tmp_yaw = self.current_yaw
+            self.last_search_yaw = self.current_yaw # <--- 初始化 last_search_yaw
+            self.total_rotation_accumulator = 0.0
+            self.get_logger().warn('Line LOST! Initiating search, recording start yaw.')
+
+        delta_yaw = self.current_yaw - self.search_tmp_yaw
+        # 修正角度，使其在[-pi, pi]范围内
+        if delta_yaw > np.pi:
+            delta_yaw -= 2 * np.pi
+        elif delta_yaw < -np.pi:
+            delta_yaw += 2 * np.pi
+
+        self.search_degree = abs(delta_yaw)
+
+        incremental_delta = self.current_yaw - self.last_search_yaw
+        if incremental_delta > np.pi: incremental_delta -= 2 * np.pi
+        elif incremental_delta < -np.pi: incremental_delta += 2 * np.pi
+
+        self.total_rotation_accumulator += abs(incremental_delta)
+        self.last_search_yaw = self.current_yaw
+
+        if self.total_rotation_accumulator > math.radians(360):
+            self.get_logger().info(f'Completed a full 360-degree search. Total rotation: {math.degrees(self.total_rotation_accumulator):.1f} degrees. Stopping search.')
+            self.robot_state = 'PROCESSING'
+            # 在切换状态前确保机器人停止
+            self.cmd_vel_publisher.publish(Twist())
+            return
+        
+        self.get_logger().info(f'Searching... Angle from start: {np.degrees(self.search_degree):.1f}, Total rotation: {np.degrees(self.total_rotation_accumulator):.1f} degrees')
+
+        if M['m00'] > 0:
+            is_valid_find, _ = self.validate_found_line()
+
+            if is_valid_find:
+                self.get_logger().info('Line re-acquired! Switching back to RECORDING state.')
+                self.robot_state = 'RECORDING'
+                # 立即应用循线控制，避免延迟
+                self.perform_recording_lap(cv_image) 
+                return
+            
+            self.get_logger().warn("Invalid find: It's the path just traveled. Continuing search.")
+
+        twist = Twist()
+        twist.linear.x = 0.0
+        twist.angular.z = self.search_speed_angular * self.search_direction
+
+        self.cmd_vel_publisher.publish(twist)
+
+    def validate_found_line(self):
+        """验证寻找到的线是否有效"""
+        if abs(self.search_degree - math.radians(180)) < self.search_degree_threshold:
+            return False, 'REPEAT'
+        
+        return True, 'OK'
+
+    def record_path_point(self):
+        """如果距离上一个点足够远，就记录一个新点。"""
+        current_x = self.current_pose.position.x
+        current_y = self.current_pose.position.y
+        if not self.path or np.linalg.norm([current_x - self.path[-1][0], current_y - self.path[-1][1]]) > self.path_record_threshold:
+            self.path.append((current_x, current_y))
+            self.get_logger().info(f'Path point recorded: ({current_x:.2f}, {current_y:.2f})', throttle_duration_sec=1)
 
     def process_path(self):
         """处理记录的路径，然后切换到STOPPED状态"""
