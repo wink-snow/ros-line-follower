@@ -45,7 +45,7 @@ class LineFollowerNode(Node):
         self.search_speed_angular = 0.3 # 丢失线时的旋转搜索速度
         self.search_tmp_yaw = 0.0
         self.search_degree = 0.0
-        self.search_degree_threshold = math.radians(130)
+        self.search_degree_threshold = math.radians(120)
         # PD 控制器
         self.Kp = 0.008                 # 比例增益
         self.Kd = 0.005                 # 微分增益
@@ -56,6 +56,8 @@ class LineFollowerNode(Node):
 
         # --- 内部状态变量 ---
         self.last_error = 0.0
+        self.last_seen_left_pixels = 0   # 记录最后一次看到线时，左侧区域的像素数
+        self.last_seen_right_pixels = 0 
         
         # --- ROS 接口 ---
         self.odom_subscription = self.create_subscription(
@@ -94,6 +96,31 @@ class LineFollowerNode(Node):
             self.cmd_vel_publisher.publish(Twist())
             # 可以在这里只打印一次信息
             self.get_logger().info('Task complete. Robot is stopped.', throttle_duration_sec=10)
+    
+    @staticmethod
+    def apply_trapezoidal_mask(image):
+        height, width = image.shape[:2]
+        
+        # 梯形的四个顶点
+        bottom_left = (0, height)
+        bottom_right = (width, height)
+        top_left = (int(width * 0.2), int(height * 0.6))
+        top_right = (int(width * 0.8), int(height * 0.6))
+        
+        vertices = np.array([[bottom_left, top_left, top_right, bottom_right]], dtype=np.int32)
+
+        mask = np.zeros_like(image)
+        
+        # 在掩码上将梯形区域填充为白色
+        if len(mask.shape) > 2: # 彩色图
+            cv2.fillPoly(mask, vertices, (255, 255, 255))
+        else: # 灰度图
+            cv2.fillPoly(mask, vertices, 255)
+        
+        # 使用 bitwise_and 将掩码应用到原始图像上
+        masked_image = cv2.bitwise_and(image, mask)
+        
+        return masked_image, mask # 同时返回掩码本身
 
     def perform_recording_lap(self, msg: Image):
         """执行循线、记录路径和检测圈末的任务"""
@@ -107,7 +134,13 @@ class LineFollowerNode(Node):
         roi_top = int(height * 2 / 3) 
         roi = cv_image[roi_top:, :]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        _, binary = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
+
+        _, binary_full_roi = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
+        binary, _ = self.apply_trapezoidal_mask(binary_full_roi)
+
+        # gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+        # gray, _ = self.apply_trapezoidal_mask(gray)
+        # _, binary = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
         M = cv2.moments(binary)
 
         # PD控制与路径记录
@@ -117,6 +150,8 @@ class LineFollowerNode(Node):
             self.search_degree = 0.0
             # --- 正常循线 ---
             cx = int(M['m10'] / M['m00'])
+            cv2.circle(roi, (cx, roi.shape[0] // 2), 10, (0, 0, 255), -1)
+
             center_of_image = width // 2
             current_error = cx - center_of_image
             derivative_error = current_error - self.last_error
@@ -134,11 +169,36 @@ class LineFollowerNode(Node):
                 self.path.append((current_x, current_y))
                 self.get_logger().info(f'Path point recorded: ({current_x:.2f}, {current_y:.2f})')
 
+             # --- 新增：分区分析 ---
+            h, w = binary.shape
+            # 将二值图的宽度分成三部分
+            left_zone = binary[:, 0 : w//3]
+            right_zone = binary[:, w*2//3 : w]
+            
+            # 计算并存储非零像素（即线的像素）数量
+            self.last_seen_left_pixels = cv2.countNonZero(left_zone)
+            self.last_seen_right_pixels = cv2.countNonZero(right_zone)
+
         else:
             # --- 线丢失处理 ---
             self.get_logger().warn('Line LOST! Initiating search...')
             twist.linear.x = 0.0
-            twist.angular.z = -self.search_speed_angular if self.last_error > 0 else self.search_speed_angular
+            
+            # 定义一个阈值，避免微小噪点的影响
+            pixel_diff_threshold = 50 
+            
+            if self.last_seen_right_pixels > self.last_seen_left_pixels + pixel_diff_threshold:
+                # 右侧像素明显更多，说明线往右拐了
+                self.get_logger().info("Hint: Line likely curved right. Searching right.")
+                twist.angular.z = -self.search_speed_angular
+            elif self.last_seen_left_pixels > self.last_seen_right_pixels + pixel_diff_threshold:
+                # 左侧像素明显更多，说明线往左拐了
+                self.get_logger().info("Hint: Line likely curved left. Searching left.")
+                twist.angular.z = self.search_speed_angular
+            else:
+                # 如果两侧差不多，或者都没有，退回到原来的策略
+                self.get_logger().info("Hint: No clear curve hint. Falling back to last error.")
+                twist.angular.z = -self.search_speed_angular if self.last_error > 0 else self.search_speed_angular
 
             # 对机器人偏角变化做一个累加
             if self.search_tmp_yaw == 0.0:
@@ -170,8 +230,9 @@ class LineFollowerNode(Node):
         self.cmd_vel_publisher.publish(twist)
         
         # 可视化 (可选)
-        # cv2.imshow("Binary Image", binary)
-        # cv2.waitKey(1)
+        cv2.imshow("Binary Image", binary)
+        cv2.imshow("Line Follower View", roi)
+        cv2.waitKey(1)
 
     def process_path(self):
         """处理记录的路径，然后切换到STOPPED状态"""
