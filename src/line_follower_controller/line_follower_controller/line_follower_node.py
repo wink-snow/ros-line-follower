@@ -134,26 +134,21 @@ class LineFollowerNode(Node):
         
         return masked_image, mask # 同时返回掩码本身
     
-    @staticmethod
-    def process_image_for_line(cv_image):
+    def process_image_for_line(self, cv_image):
         """图像处理部分"""
         height, width, _ = cv_image.shape
         roi_top = int(height * 2 / 3) 
         roi = cv_image[roi_top:, :]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         _, binary_full_roi = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
-        return roi, binary_full_roi
+        binary, _ = self.apply_trapezoidal_mask(binary_full_roi)
+        M = cv2.moments(binary)
+        return roi, binary, M
     
     def perform_recording_lap(self, cv_image):
         """执行循线、记录路径和检测圈末的任务"""
 
-        roi, binary_full_roi = self.process_image_for_line(cv_image)
-        binary, _ = self.apply_trapezoidal_mask(binary_full_roi)
-
-        # gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
-        # gray, _ = self.apply_trapezoidal_mask(gray)
-        # _, binary = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
-        M = cv2.moments(binary)
+        roi, binary, M = self.process_image_for_line(cv_image)
 
         # PD控制与路径记录
         twist = Twist()
@@ -220,9 +215,7 @@ class LineFollowerNode(Node):
         cv2.waitKey(1)
 
     def perform_search(self, cv_image):
-        roi, binary_full_roi = self.process_image_for_line(cv_image)
-        binary, _ = self.apply_trapezoidal_mask(binary_full_roi)
-        M = cv2.moments(binary) 
+        _, _, M = self.process_image_for_line(cv_image)
 
         # 对机器人偏角变化做一个累加
         if self.search_tmp_yaw == 0.0:
