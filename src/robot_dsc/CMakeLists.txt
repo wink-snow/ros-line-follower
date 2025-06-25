@@ -7,7 +7,7 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(gazebo_ros REQUIRED) # For plugins if you compile any
+find_package(ros_gz_sim REQUIRED) # For plugins if you compile any
 find_package(robot_state_publisher REQUIRED)
 find_package(xacro REQUIRED)
 # uncomment the following section in order to fill in
