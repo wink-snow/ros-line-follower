@@ -101,6 +101,16 @@
           <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse></material>
         </visual>
       </link>
+
+      <!-- (-2, 5) to (1, 2) -->
+      <link name="segment_6">
+        <pose>-0.5 3.5 0.01 0 0 -0.785398</pose>
+        <visual name="visual">
+          <semantic><label>1</label></semantic>
+          <geometry><box><size>4.242 0.1 0.001</size></box></geometry>
+          <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse></material>
+        </visual>
+      </link>
     </model>
 
     <!-- 你的阴影投射物，保持不变 -->
