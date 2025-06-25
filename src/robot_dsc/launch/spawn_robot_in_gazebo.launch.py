@@ -67,6 +67,9 @@ def generate_launch_description():
         package='ros_gz_bridge',
         executable='parameter_bridge',
         arguments=[
+            # LIDAR (Gazebo -> ROS)
+            '/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
+            
             # 摄像头 (Gazebo -> ROS)
             '/rgb_camera@sensor_msgs/msg/Image[gz.msgs.Image',
             '/semantic_camera/labels_map@sensor_msgs/msg/Image[gz.msgs.Image',

@@ -77,6 +77,29 @@
         <origin xyz="${base_length/2 - 0.01} 0 ${base_height/2}" rpy="0 0.52 0"/>
     </joint>
 
+    <!-- 创建一个用于放置LIDAR的link -->
+    <link name="lidar_link">
+        <inertial>
+            <mass value="0.1"/>
+            <xacro:box_inertia m="0.1" x="0.05" y="0.05" z="0.05"/>
+        </inertial>
+        <visual>
+            <geometry><box size="0.05 0.05 0.05"/></geometry>
+            <material name="blue"><color rgba="0 0 1 1"/></material>
+        </visual>
+        <collision>
+            <geometry><box size="0.05 0.05 0.05"/></geometry>
+        </collision>
+    </link>
+
+    <!-- 将LIDAR link固定在base_link的前方 -->
+    <joint name="lidar_joint" type="fixed">
+        <parent link="base_link"/>
+        <child link="lidar_link"/>
+        <!-- 放置在车体最前端、略高于车体的位置 -->
+        <origin xyz="${base_length/2} 0 ${base_height/2 + 0.025}" rpy="0 0 0"/>
+    </joint>
+
     <!-- =================================================================== -->
     <!-- ================ Gazebo Sim (New Gazebo) Integration ================ -->
     <!-- =================================================================== -->
@@ -143,6 +166,38 @@
             <!-- plugin name="gz::sim::systems::SegmentationCamera" filename="gz-sim-segmentation-camera-system">
                 <topic>/semantic_camera</topic>
             </plugin -->
+        </sensor>
+    </gazebo>
+
+    <!-- Gazebo传感器定义 -->
+    <gazebo reference="lidar_link">
+        <!-- 添加LIDAR传感器插件 -->
+        <sensor name="gpu_lidar" type="gpu_ray">
+            <pose>0 0 0 0 0 0</pose>
+            <visualize>true</visualize> <!-- 在Gazebo中显示激光线 -->
+            <update_rate>10</update_rate>
+            <ray>
+                <scan>
+                    <horizontal>
+                        <samples>360</samples> <!-- 360条激光线 -->
+                        <resolution>1</resolution>
+                        <min_angle>-2.35619</min_angle> <!-- -135度 -->
+                        <max_angle>2.35619</max_angle>  <!-- +135度 -->
+                    </horizontal>
+                </scan>
+                <range>
+                    <min>0.1</min> <!-- 最小探测距离 -->
+                    <max>10.0</max> <!-- 最大探测距离 -->
+                    <resolution>0.01</resolution>
+                </range>
+                <noise>
+                    <type>gaussian</type>
+                    <mean>0.0</mean>
+                    <stddev>0.01</stddev>
+                </noise>
+            </ray>
+            <topic>/scan</topic> <!-- ROS话题名 -->
+            <frame>lidar_link</frame>
         </sensor>
     </gazebo>
 
