@@ -88,12 +88,19 @@ class LineFollowerNode(Node):
         if self.current_pose is None:
             self.get_logger().warn('Waiting for initial odometry data...', throttle_duration_sec=2)
             return
+        
+        try:
+            cv_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+        except Exception as e:
+            self.get_logger().error(f'Failed to convert image in main callback: {e}')
+            return
 
         # --- 状态机 RECORDING -> SEARCHING -> PROCESSING -> STOPPED ---
+        # --- 控制逻辑分发 ---
         if self.robot_state == 'RECORDING':
-            self.perform_recording_lap(msg)
+            self.perform_recording_lap(cv_image)
         elif self.robot_state == 'SEARCHING':
-            self.perform_search(msg)
+            self.perform_search(cv_image)
         elif self.robot_state == 'PROCESSING':
             self.process_path()
         elif self.robot_state == 'STOPPED':
@@ -137,13 +144,8 @@ class LineFollowerNode(Node):
         _, binary_full_roi = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
         return roi, binary_full_roi
     
-    def perform_recording_lap(self, msg: Image):
+    def perform_recording_lap(self, cv_image):
         """执行循线、记录路径和检测圈末的任务"""
-        try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
-        except Exception as e:
-            self.get_logger().error(f'Failed to convert image when recording: {e}')
-            return
 
         roi, binary_full_roi = self.process_image_for_line(cv_image)
         binary, _ = self.apply_trapezoidal_mask(binary_full_roi)
@@ -217,12 +219,7 @@ class LineFollowerNode(Node):
         cv2.imshow("Line Follower View", roi)
         cv2.waitKey(1)
 
-    def perform_search(self, msg: Image):
-        try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
-        except Exception as e:
-            self.get_logger().error(f'Failed to convert image when seatching: {e}')
-            return
+    def perform_search(self, cv_image):
         roi, binary_full_roi = self.process_image_for_line(cv_image)
         binary, _ = self.apply_trapezoidal_mask(binary_full_roi)
         M = cv2.moments(binary) 
